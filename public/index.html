@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><title>Uploader</title>
+<style>
+body{font-family:Arial;padding:20px}
+.file{border:1px solid #ccc;padding:10px;margin-bottom:8px;border-radius:6px}
+</style>
+</head>
+<body>
+<h1>Upload</h1>
+<form id="uploadForm">
+  <input type="file" id="fileInput">
+  <button>Upload</button>
+</form>
+<h2>Files</h2>
+<div id="files">Loading…</div>
+<script>
+async function listFiles(){
+  const r = await fetch('/api/files');
+  const files = await r.json();
+  const container = document.getElementById('files');
+  container.innerHTML='';
+
+  if(!files.length){container.innerText='No files';return;}
+
+  files.forEach(f=>{
+    const d=document.createElement('div');
+    d.className='file';
+    d.innerHTML=`<b>${f.originalName}</b> (${Math.round(f.size/1024)} KB)`;
+
+    const view=document.createElement('a');
+    view.href='/view/'+f.id;view.target='_blank';view.textContent='View';
+
+    const raw=document.createElement('a');
+    raw.href='/raw/'+f.id;raw.target='_blank';raw.textContent='Raw';raw.style.marginLeft='8px';
+
+    const btn=document.createElement('button');
+    btn.textContent=f.locked?'Unlock':'Lock';
+    btn.onclick=async e=>{
+      e.preventDefault();
+      await fetch('/api/toggle-lock/'+f.id,{method:'POST'});
+      listFiles();
+    };
+
+    d.append(view, raw, btn);
+    container.appendChild(d);
+  });
+}
+
+document.getElementById('uploadForm').onsubmit=async e=>{
+  e.preventDefault();
+  const f=document.getElementById('fileInput').files[0];
+  if(!f)return alert('Pick a file');
+  const fd=new FormData(); fd.append('file',f);
+  await fetch('/api/upload',{method:'POST',body:fd});
+  document.getElementById('fileInput').value='';
+  listFiles();
+};
+
+listFiles();
+</script>
+</body>
+</html>
