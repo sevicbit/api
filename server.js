@@ -1,47 +1,54 @@
 const express = require("express");
+const bodyParser = require("body-parser");
 const crypto = require("crypto");
+
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json());
 
-const storage = {}; // store raw codes and passwords
+/* ---- DATABASE IN MEMORY ---- */
+const raws = {}; 
+// structure: raws[id] = { code: "..." }
 
-// ---- CREATE RAW LINK ----
+/* ---- API: CREATE RAW ---- */
 app.post("/api/create", (req, res) => {
     const { code } = req.body;
+    if (!code) return res.json({ error: "No code provided." });
 
-    if (!code) return res.status(400).json({ error: "No code provided" });
-
-    const id = crypto.randomBytes(8).toString("hex");
-    const password = crypto.randomBytes(3).toString("hex"); // random 6 char password
-
-    storage[id] = { code, password };
+    const id = crypto.randomBytes(8).toString("hex"); // random API
+    raws[id] = { code };
 
     res.json({
-        url: `/api/raw/${id}`,
-        password: password
+        url: `/raw/${id}`
     });
 });
 
-// ---- RAW LINK ENDPOINT ----
-app.get("/api/raw/:id", (req, res) => {
-    const { id } = req.params;
+/* ---- SERVE RAW ---- */
+app.get("/raw/:id", (req, res) => {
+    const id = req.params.id;
 
-    if (!storage[id]) return res.status(404).send("Not found");
+    if (!raws[id]) return res.status(404).send("Invalid raw id.");
 
-    const header = req.headers["x-access"];
-    const pass = req.headers["x-pass"]; // password header
+    // Detect if Roblox HttpGet is requesting
+    const ua = req.headers["user-agent"] || "";
 
-    // Only requests WITH header AND correct password get real code
-    if (header === "allowed" && pass === storage[id].password) {
-        res.type("text/plain");
-        return res.send(storage[id].code);
+    const isRoblox =
+        ua.includes("Roblox") ||
+        ua.includes("HttpService") ||
+        ua.includes("Game") ||
+        ua === ""; 
+
+    if (isRoblox) {
+        // return REAL CODE for loadstring(game:HttpGet(...))
+        res.setHeader("Content-Type", "text/plain");
+        return res.send(raws[id].code);
     }
 
-    // Normal browser view
-    res.type("text/plain");
+    // User visited in browser → BLOCK
+    res.setHeader("Content-Type", "text/plain");
     res.send("ANO SKID PA?");
 });
 
-app.use(express.static(".")); // serve index.html
-
-app.listen(3000, () => console.log("Server running on port 3000"));
+/* ---- SERVER START ---- */
+app.listen(3000, () => {
+    console.log("Server running on port 3000");
+});
