@@ -1,62 +1,103 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8"><title>Uploader</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Uploader & Viewer</title>
 <style>
-body{font-family:Arial;padding:20px}
-.file{border:1px solid #ccc;padding:10px;margin-bottom:8px;border-radius:6px}
+body{font-family:system-ui,Segoe UI,Roboto,Arial;padding:20px}
+.file{border:1px solid #ddd;padding:10px;margin-bottom:10px;border-radius:8px}
+.progress{height:14px;background:#eee;border-radius:8px;overflow:hidden;margin-top:8px}
+.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#aaf,#55f)}
+button{margin-left:8px}
 </style>
 </head>
 <body>
-<h1>Upload</h1>
+<h1>Upload & Lock Demo</h1>
 <form id="uploadForm">
   <input type="file" id="fileInput">
   <button>Upload</button>
+  <div class="progress" id="uploadProgress" style="display:none"><i></i></div>
 </form>
+
 <h2>Files</h2>
 <div id="files">Loading…</div>
+
 <script>
 async function listFiles(){
   const r = await fetch('/api/files');
   const files = await r.json();
-  const container = document.getElementById('files');
-  container.innerHTML='';
-
-  if(!files.length){container.innerText='No files';return;}
-
+  const c = document.getElementById('files'); c.innerHTML='';
+  if (!files.length) { c.innerText='No files'; return; }
   files.forEach(f=>{
-    const d=document.createElement('div');
-    d.className='file';
-    d.innerHTML=`<b>${f.originalName}</b> (${Math.round(f.size/1024)} KB)`;
+    const d = document.createElement('div'); d.className='file';
+    d.innerHTML = `<strong>${f.originalName}</strong> — ${Math.round(f.size/1024)} KB<br><small>Uploaded: ${new Date(f.uploadedAt).toLocaleString()}</small>`;
+    const view = document.createElement('a'); view.href='#'; view.textContent='View'; view.style.marginLeft='8px';
+    view.onclick = async (e)=>{ e.preventDefault(); openViewer(f.id, f.originalName); };
+    const raw = document.createElement('a'); raw.href='/raw/'+f.id; raw.textContent='Raw'; raw.style.marginLeft='8px'; raw.target='_blank';
 
-    const view=document.createElement('a');
-    view.href='/view/'+f.id;view.target='_blank';view.textContent='View';
+    const btn = document.createElement('button'); btn.textContent = f.locked? 'Unlock raw' : 'Lock raw';
+    btn.onclick = async (e)=>{ e.preventDefault(); await fetch('/api/toggle-lock/'+f.id,{method:'POST'}); listFiles(); };
 
-    const raw=document.createElement('a');
-    raw.href='/raw/'+f.id;raw.target='_blank';raw.textContent='Raw';raw.style.marginLeft='8px';
-
-    const btn=document.createElement('button');
-    btn.textContent=f.locked?'Unlock':'Lock';
-    btn.onclick=async e=>{
-      e.preventDefault();
-      await fetch('/api/toggle-lock/'+f.id,{method:'POST'});
-      listFiles();
-    };
-
-    d.append(view, raw, btn);
-    container.appendChild(d);
+    d.appendChild(view); d.appendChild(raw); d.appendChild(btn);
+    c.appendChild(d);
   });
 }
 
-document.getElementById('uploadForm').onsubmit=async e=>{
+// Upload with progress
+document.getElementById('uploadForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const f=document.getElementById('fileInput').files[0];
-  if(!f)return alert('Pick a file');
-  const fd=new FormData(); fd.append('file',f);
-  await fetch('/api/upload',{method:'POST',body:fd});
-  document.getElementById('fileInput').value='';
-  listFiles();
-};
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) return alert('Pick a file');
+  const fd = new FormData(); fd.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+  const bar = document.getElementById('uploadProgress');
+  const barInner = bar.querySelector('i');
+  bar.style.display = 'block'; barInner.style.width = '0%';
+
+  xhr.upload.onprogress = (ev) => {
+    if (ev.lengthComputable) {
+      const pct = Math.round(ev.loaded/ev.total*100);
+      barInner.style.width = pct + '%';
+    }
+  };
+  xhr.onload = () => { bar.style.display='none'; listFiles(); document.getElementById('fileInput').value=''; };
+  xhr.onerror = () => { bar.style.display='none'; alert('Upload failed'); };
+  xhr.send(fd);
+});
+
+// Viewer that asks for password and then fetches /api/content/:id
+async function openViewer(id, name){
+  // prompt for password
+  const pwd = prompt('Enter viewer password (rotates every 10 minutes)');
+  if (pwd === null) return; // cancelled
+  const res = await fetch('/api/verify-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
+  if (res.ok){
+    // open a new window and stream content
+    const win = window.open('about:blank', '_blank');
+    if (!win) return alert('Popup blocked');
+    win.document.write('<p>Loading '+name+'…</p>');
+    try{
+      const r = await fetch('/api/content/'+id);
+      const ct = r.headers.get('content-type')||'';
+      if (ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')){
+        const txt = await r.text();
+        win.document.body.innerHTML = '<h2>'+name+'</h2><pre style="white-space:pre-wrap;word-break:break-word">'+escapeHtml(txt)+'</pre>';
+      } else {
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        win.document.body.innerHTML = `<h2>${name}</h2><a href="${url}" download="${name}">Download</a><br><iframe src="${url}" style="width:100%;height:600px;border:1px solid #ccc"></iframe>`;
+      }
+    } catch(e){ win.document.body.innerText = 'Error loading file'; }
+  } else {
+    const j = await res.json().catch(()=>({}));
+    alert('Invalid or expired password: ' + (j.error || ''));
+  }
+}
+
+function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 listFiles();
 </script>
