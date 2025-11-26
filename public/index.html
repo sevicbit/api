@@ -1,105 +1,228 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Uploader & Viewer</title>
-<style>
-body{font-family:system-ui,Segoe UI,Roboto,Arial;padding:20px}
-.file{border:1px solid #ddd;padding:10px;margin-bottom:10px;border-radius:8px}
-.progress{height:14px;background:#eee;border-radius:8px;overflow:hidden;margin-top:8px}
-.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#aaf,#55f)}
-button{margin-left:8px}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>nix uploader</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0b0f13;--card:#0f1620;--muted:#93a1b0;--accent:#7c5cff}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    body{background:linear-gradient(180deg,#07080a 0%, #0b0f13 100%);color:#e6eef6}
+    .wrap{max-width:980px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between}
+    h1{margin:0;font-weight:700}
+    .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+    .upload-area{display:flex;gap:16px;align-items:center}
+    .file-input{padding:12px 16px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.02)}
+    button{background:var(--accent);border:none;padding:10px 14px;border-radius:10px;color:white;font-weight:600;cursor:pointer}
+    .muted{color:var(--muted)}
+    .uploads{margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    .upload-item{padding:12px;border-radius:10px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);display:flex;flex-direction:column;gap:8px}
+    .small{font-size:13px}
+    .viewer{margin-top:18px}
+    input[type=text], input[type=password]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    .progress{height:8px;background:rgba(255,255,255,0.03);border-radius:6px;overflow:hidden}
+    .progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--accent),#2ec7b7)}
+    .hint{font-size:12px;color:var(--muted)}
+    footer{margin-top:28px;text-align:center;color:var(--muted);font-size:13px}
+    a.link{color:var(--accent);text-decoration:none}
+  </style>
 </head>
 <body>
-<h1>Upload & Lock Demo</h1>
-<form id="uploadForm">
-  <input type="file" id="fileInput">
-  <button>Upload</button>
-  <div class="progress" id="uploadProgress" style="display:none"><i></i></div>
-</form>
+  <div class="wrap">
+    <header>
+      <h1>nix uploader</h1>
+      <div class="muted small">modern dark UI • password-protected</div>
+    </header>
 
-<h2>Files</h2>
-<div id="files">Loading…</div>
+    <section class="card" style="margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div class="upload-area">
+          <label class="file-input">
+            <input id="fileField" type="file" style="display:none">
+            <span id="fileLabel" class="small">Choose a file…</span>
+          </label>
+          <button id="uploadBtn">Upload</button>
+        </div>
+        <div style="text-align:right">
+          <div class="hint">Raw endpoint will show <code>Access Denied</code> intentionally.</div>
+        </div>
+      </div>
 
-<script>
-async function listFiles(){
-  const r = await fetch('/api/files');
-  const files = await r.json();
-  const c = document.getElementById('files'); c.innerHTML='';
-  if (!files.length) { c.innerText='No files'; return; }
-  files.forEach(f=>{
-    const d = document.createElement('div'); d.className='file';
-    d.innerHTML = `<strong>${f.originalName}</strong> — ${Math.round(f.size/1024)} KB<br><small>Uploaded: ${new Date(f.uploadedAt).toLocaleString()}</small>`;
-    const view = document.createElement('a'); view.href='#'; view.textContent='View'; view.style.marginLeft='8px';
-    view.onclick = async (e)=>{ e.preventDefault(); openViewer(f.id, f.originalName); };
-    const raw = document.createElement('a'); raw.href='/raw/'+f.id; raw.textContent='Raw'; raw.style.marginLeft='8px'; raw.target='_blank';
+      <div class="uploads" id="uploads"></div>
+    </section>
 
-    const btn = document.createElement('button'); btn.textContent = f.locked? 'Unlock raw' : 'Lock raw';
-    btn.onclick = async (e)=>{ e.preventDefault(); await fetch('/api/toggle-lock/'+f.id,{method:'POST'}); listFiles(); };
+    <section class="card viewer" id="viewerCard" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <div>
+          <div id="viewerName" style="font-weight:600"></div>
+          <div id="viewerSize" class="small muted"></div>
+        </div>
+        <div>
+          <a id="downloadBtn" class="link" href="#">Download / Stream</a>
+        </div>
+      </div>
 
-    d.appendChild(view); d.appendChild(raw); d.appendChild(btn);
-    c.appendChild(d);
-  });
-}
+      <div style="margin-top:12px">
+        <div style="display:flex;gap:8px">
+          <input id="passwordInput" type="password" placeholder="Enter password to view">
+          <button id="unlockBtn">Unlock</button>
+        </div>
+        <div id="authMsg" class="small muted" style="margin-top:8px"></div>
+      </div>
 
-// Upload with progress
-document.getElementById('uploadForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const file = document.getElementById('fileInput').files[0];
-  if (!file) return alert('Pick a file');
-  const fd = new FormData(); fd.append('file', file);
+      <div style="margin-top:12px">
+        <div class="progress"><i id="downloadProgress"></i></div>
+      </div>
+    </section>
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/upload');
-  const bar = document.getElementById('uploadProgress');
-  const barInner = bar.querySelector('i');
-  bar.style.display = 'block'; barInner.style.width = '0%';
+    <footer>
+      Passwords used (server-side): <span class="muted">A9x!Q4pZ, mT7#vR2K, Zp3!Lq8W, rB6@Nf5X, H4v$T1mC</span>
+    </footer>
+  </div>
 
-  xhr.upload.onprogress = (ev) => {
-    if (ev.lengthComputable) {
-      const pct = Math.round(ev.loaded/ev.total*100);
-      barInner.style.width = pct + '%';
-    }
-  };
-  xhr.onload = () => { bar.style.display='none'; listFiles(); document.getElementById('fileInput').value=''; };
-  xhr.onerror = () => { bar.style.display='none'; alert('Upload failed'); };
-  xhr.send(fd);
-});
+  <script>
+    const uploadsEl = document.getElementById('uploads');
+    const fileField = document.getElementById('fileField');
+    const fileLabel = document.getElementById('fileLabel');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const viewerCard = document.getElementById('viewerCard');
+    const viewerName = document.getElementById('viewerName');
+    const viewerSize = document.getElementById('viewerSize');
+    const passwordInput = document.getElementById('passwordInput');
+    const unlockBtn = document.getElementById('unlockBtn');
+    const authMsg = document.getElementById('authMsg');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const progressBar = document.getElementById('downloadProgress');
 
-// Viewer that asks for password and then fetches /api/content/:id
-async function openViewer(id, name){
-  // prompt for password
-  const pwd = prompt('Enter viewer password (rotates every 10 minutes)');
-  if (pwd === null) return; // cancelled
-  const res = await fetch('/api/verify-password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
-  if (res.ok){
-    // open a new window and stream content
-    const win = window.open('about:blank', '_blank');
-    if (!win) return alert('Popup blocked');
-    win.document.write('<p>Loading '+name+'…</p>');
-    try{
-      const r = await fetch('/api/content/'+id);
-      const ct = r.headers.get('content-type')||'';
-      if (ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')){
-        const txt = await r.text();
-        win.document.body.innerHTML = '<h2>'+name+'</h2><pre style="white-space:pre-wrap;word-break:break-word">'+escapeHtml(txt)+'</pre>';
-      } else {
-        const blob = await r.blob();
-        const url = URL.createObjectURL(blob);
-        win.document.body.innerHTML = `<h2>${name}</h2><a href="${url}" download="${name}">Download</a><br><iframe src="${url}" style="width:100%;height:600px;border:1px solid #ccc"></iframe>`;
+    let lastUploads = [];
+    let selected = null;
+    let currentToken = null;
+
+    fileLabel.addEventListener('click', () => fileField.click());
+    fileField.addEventListener('change', () => {
+      const f = fileField.files[0];
+      fileLabel.textContent = f ? `${f.name} (${Math.round(f.size/1024)} KB)` : 'Choose a file…';
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      const f = fileField.files[0];
+      if (!f) return alert('Pick a file first');
+      const fd = new FormData();
+      fd.append('file', f);
+      uploadBtn.disabled = true; uploadBtn.textContent = 'Uploading...';
+      try {
+        const r = await fetch('/upload', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Upload failed');
+        lastUploads.unshift(j.meta);
+        renderUploads();
+        fileField.value = '';
+        fileLabel.textContent = 'Choose a file…';
+      } catch (e) {
+        alert('Upload error: '+e.message);
       }
-    } catch(e){ win.document.body.innerText = 'Error loading file'; }
-  } else {
-    const j = await res.json().catch(()=>({}));
-    alert('Invalid or expired password: ' + (j.error || ''));
-  }
-}
+      uploadBtn.disabled = false; uploadBtn.textContent = 'Upload';
+    });
 
-function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function renderUploads() {
+      uploadsEl.innerHTML = '';
+      for (const m of lastUploads) {
+        const it = document.createElement('div');
+        it.className = 'upload-item';
+        it.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${escapeHtml(m.originalName)}</strong><div class="small muted">${new Date(m.uploadedAt).toLocaleString()}</div></div><div><button data-id="${m.id}" class="viewBtn">View</button></div></div>`;
+        uploadsEl.appendChild(it);
+      }
+      Array.from(document.getElementsByClassName('viewBtn')).forEach(b => b.addEventListener('click', async e => {
+        const id = e.currentTarget.getAttribute('data-id');
+        await openViewer(id);
+      }));
+    }
 
-listFiles();
-</script>
+    async function openViewer(id) {
+      const r = await fetch(`/file/${id}/meta`);
+      const j = await r.json();
+      if (!j.ok) return alert('Failed to load metadata');
+      selected = j.meta;
+      currentToken = null;
+      viewerCard.style.display = 'block';
+      viewerName.textContent = selected.originalName;
+      viewerSize.textContent = `${selected.size} bytes • uploaded ${new Date(selected.uploadedAt).toLocaleString()}`;
+      authMsg.textContent = 'Enter one of the allowed passwords to stream/download.';
+      progressBar.style.width = '0%';
+      passwordInput.value = '';
+      downloadBtn.href = '#';
+      downloadBtn.onclick = (ev) => { ev.preventDefault(); if (currentToken) streamAndDownload(selected.id, currentToken); else alert('Unlock first'); };
+    }
+
+    unlockBtn.addEventListener('click', async () => {
+      if (!selected) return;
+      authMsg.textContent = 'Checking...';
+      try {
+        const r = await fetch(`/auth/${selected.id}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: passwordInput.value }) });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || 'Auth failed');
+        currentToken = j.token;
+        authMsg.textContent = 'Unlocked — you can stream or download now.';
+      } catch (e) {
+        authMsg.textContent = 'Invalid password.';
+      }
+    });
+
+    // streaming + save to file via blob while showing progress
+    async function streamAndDownload(id, token) {
+      progressBar.style.width = '0%';
+      try {
+        const r = await fetch(`/stream/${id}`, { headers: { 'Authorization': 'Bearer '+token } });
+        if (!r.ok) {
+          const j = await r.json().catch(()=>null);
+          alert('Stream failed: ' + (j && j.error || r.statusText));
+          return;
+        }
+        const contentLength = r.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength,10) : NaN;
+        const reader = r.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (!isNaN(total)) {
+            const pct = Math.round((received/total)*100);
+            progressBar.style.width = pct + '%';
+          } else {
+            progressBar.style.width = '60%';
+          }
+        }
+        progressBar.style.width = '100%';
+        const blob = new Blob(chunks);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = selected.originalName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Download error: '+e.message);
+      }
+    }
+
+    function escapeHtml(s){return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
+
+    // if URL path is /view/:id, auto-open
+    (function checkAutoOpen(){
+      const p = location.pathname.split('/');
+      if (p[1] === 'view' && p[2]) {
+        const id = p[2];
+        // fetch meta to populate
+        fetch(`/file/${id}/meta`).then(r=>r.json()).then(j=>{if(j.ok){ lastUploads.unshift(j.meta); renderUploads(); openViewer(id); }}).catch(()=>{});
+      }
+    })();
+  </script>
 </body>
 </html>
